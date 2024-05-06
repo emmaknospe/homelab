@@ -13,9 +13,7 @@ services:
       - .env
 
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: ghcr.io/emmaknospe/homelab-api:main
     ports:
       - "8000:8000"
     environment:
@@ -37,6 +35,8 @@ services:
       - WATCHTOWER_LABEL_FILTER=watchtower
       - WATCHTOWER_REMOVE_VOLUMES=true
       - WATCHTOWER_NOTIFICATION_URL=${DISCORD_WEBHOOK_URL}
+    env_file:
+      - .env
 
 volumes:
   postgres_data:
