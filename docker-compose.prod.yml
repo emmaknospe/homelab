@@ -25,5 +25,18 @@ services:
     env_file:
       - .env
 
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=60
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_LABEL_FILTER=watchtower
+      - WATCHTOWER_REMOVE_VOLUMES=true
+      - WATCHTOWER_NOTIFICATION_URL=${DISCORD_WEBHOOK_URL}
+
 volumes:
   postgres_data:
