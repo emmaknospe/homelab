@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends
+from pydantic import BaseModel
 
 from db import get_db
 from api.models.log_entry import LogEntry
@@ -16,10 +17,14 @@ async def say_hello(name: str):
     return {"message": f"Hello {name}"}
 
 
+class LogEntryCreate(BaseModel):
+    message: str
+
+
 @app.post("/logs/")
-def create_log_entry(message: str, db=Depends(get_db)):
+def create_log_entry(log_entry: LogEntryCreate, db=Depends(get_db)):
     # Create a new LogEntry instance
-    log_entry = LogEntry(message=message)
+    log_entry = LogEntry(message=log_entry.message)
 
     # Add the log entry to the database session
     db.add(log_entry)
