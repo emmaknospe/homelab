@@ -25,6 +25,18 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  migration-runner:
+    image: ghcr.io/emmaknospe/homelab-api:main
+    command: sh -c "poetry run alembic upgrade head"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/homelab
+    depends_on:
+      - db
+    env_file:
+      - .env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   watchtower:
     image: containrrr/watchtower
     volumes:
