@@ -22,7 +22,14 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
 
-from api.models.log_entry import LogEntry
+# import all models recursively from api.models
+
+import importlib
+import pkgutil
+
+for _, module_name, _ in pkgutil.iter_modules(['api/models']):
+    importlib.import_module(f'api.models.{module_name}')
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
