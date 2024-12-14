@@ -1,0 +1,28 @@
+global:
+  domain: court306.com
+
+namespaces:
+  cert-manager:
+    labels:
+      monitoring: enabled
+      environment: prod
+    annotations:
+      description: "Certificate management"
+
+  kubernetes-dashboard:
+    labels:
+      monitoring: enabled
+      environment: prod
+    annotations:
+      description: "Kubernetes web UI"
+
+#  monitoring:
+#    labels:
+#      type: observability
+#      environment: prod
+#    annotations:
+#      description: "Prometheus and Grafana"
+
+certVerify:
+  enabled: false
+  email: emma@emmaknospe.dev

@@ -1,0 +1,43 @@
+version: v2beta1
+name: homelab306-k8s-infra
+
+
+vars:
+  CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID:
+    alwaysResolve: true
+  CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY:
+    alwaysResolve: true
+
+deployments:
+  cert-manager:
+    namespace: cert-manager
+    helm:
+      chart:
+        name: cert-manager
+        repo: https://charts.jetstack.io
+
+  core-infra:
+    helm:
+      chart:
+        name: ./core
+      valuesFiles:
+        - ./core/values.yaml
+      values:
+        certManager:
+          awsAccessKeyId: ${CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID}
+          awsSecretAccessKey: ${CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY}
+
+  kubernetes-dashboard:
+    namespace: kubernetes-dashboard
+    helm:
+      chart:
+        name: kubernetes-dashboard
+        repo: https://kubernetes.github.io/dashboard/
+      values:
+        serviceAccount:
+          create: true
+          name: kubernetes-dashboard
+        kong:
+          proxy:
+            http:
+              enabled: true

@@ -1,0 +1,17 @@
+version: v2beta1
+name: homelab306
+
+
+vars:
+  # to set variables in the devspace cache: devspace set var <key>=<value>
+  DEVSPACE_ENV_FILE: ".env"
+
+
+dependencies:
+  k8s-infra:
+    path: ./k8s-infra
+    vars:
+      CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID: ${CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID}
+      CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY: ${CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY}
+
+
