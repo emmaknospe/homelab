@@ -1,10 +1,13 @@
 import sys
 from queue import Queue, Empty
 from threading import Thread
-
+import time
 import paramiko
-
+import logging
 from cli.utils.server import Server
+
+
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 
 
 def stream_output(chan, queue):
@@ -37,21 +40,34 @@ def stream_error(chan, queue):
             break
 
 
-class SSHUtil:
+class ServerInterface:
     def __init__(self, server: Server):
         self.server = server
         self.ssh = None
 
     def __enter__(self):
-        self.ssh = paramiko.SSHClient()
-        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.ssh.connect(self.server.hostname, username=self.server.username, port=22)
-
+        self._init_ssh_session()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.ssh.close()
 
+    def _init_ssh_session(self, timeout=5):
+        self.ssh = paramiko.SSHClient()
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        start_time = time.time()
+        while True:
+            try:
+                self.ssh.connect(self.server.hostname, username=self.server.username, port=22)
+                break
+            except paramiko.ssh_exception.NoValidConnectionsError:
+                time.sleep(1)
+            except paramiko.ssh_exception.AuthenticationException as e:
+                raise Exception(f"Authentication failed for {self.server.username}@{self.server.hostname}") from e
+            except paramiko.ssh_exception.SSHException:
+                time.sleep(1)
+            if time.time() - start_time > timeout:
+                raise Exception(f"Could not connect to {self.server.hostname}")
     def run_command(self, command):
         stdin, stdout, stderr = self.ssh.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
@@ -111,3 +127,9 @@ class SSHUtil:
         sftp = self.ssh.open_sftp()
         sftp.get(remote_path, local_path)
         sftp.close()
+
+    def reboot(self):
+        self.run_command('sudo reboot')
+        self.ssh.close()
+        self.ssh = None
+        self._init_ssh_session(timeout=60)

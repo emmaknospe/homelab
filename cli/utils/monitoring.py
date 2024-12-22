@@ -1,11 +1,11 @@
 import socket
 from typing import Optional
 
-from cli.utils.ssh import SSHUtil
+from cli.utils.server_interface import ServerInterface
 from cli.utils.server import Server, ServerStatus, K3SServerStatus, K3SAgentStatus, HostInfo
 
 
-def get_systemctl_service_status(ssh: SSHUtil, service_name: str) -> tuple[Optional[bool], Optional[bool], Optional[bool]]:
+def get_systemctl_service_status(ssh: ServerInterface, service_name: str) -> tuple[Optional[bool], Optional[bool], Optional[bool]]:
     stdout, stderr = ssh.run_command(f'systemctl list-units --all {service_name}.service')
     if service_name not in stdout:
         return False, None, None
@@ -34,7 +34,7 @@ def get_systemctl_service_status(ssh: SSHUtil, service_name: str) -> tuple[Optio
 def get_server_status(server: Server) -> ServerStatus:
     host_info = check_host(server.hostname)
     try:
-        with SSHUtil(server) as ssh:
+        with ServerInterface(server) as ssh:
             k3s_server_status = None
             k3s_server_present, k3s_server_active, k3s_server_enabled = get_systemctl_service_status(ssh, 'k3s')
             if k3s_server_present:

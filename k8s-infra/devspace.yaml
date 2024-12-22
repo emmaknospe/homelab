@@ -15,8 +15,11 @@ deployments:
       chart:
         name: cert-manager
         repo: https://charts.jetstack.io
+      values:
+        installCRDs: true
 
   core-infra:
+    namespace: core-infra
     helm:
       chart:
         name: ./core
@@ -40,4 +43,19 @@ deployments:
         kong:
           proxy:
             http:
+              enabled: true
+        app:
+          ingress:
+            enabled: true
+            annotations:
+              cert-manager.io/cluster-issuer: "letsencrypt-prod"
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            hosts:
+              - dashboard.court306.com
+            useDefaultIngressClass: true
+            pathType: ImplementationSpecific
+            path: /
+            issuer:
+              scope: disabled
+            tls:
               enabled: true

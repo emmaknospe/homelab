@@ -1,22 +1,22 @@
 {
-  "k8pi0.localdomain": {
-    "hostname": "k8pi0.localdomain",
-    "username": "k8pi",
+  "pi5n0.localdomain": {
+    "hostname": "pi5n0.localdomain",
+    "username": "admin",
     "kind": "k3s_server"
   },
-  "k8pi1.localdomain": {
-    "hostname": "k8pi1.localdomain",
-    "username": "k8pi",
+  "pi5n1.localdomain": {
+    "hostname": "pi5n1.localdomain",
+    "username": "admin",
     "kind": "k3s_agent"
   },
-  "k8pi2.localdomain": {
-    "hostname": "k8pi2.localdomain",
-    "username": "k8pi",
+  "pi5n2.localdomain": {
+    "hostname": "pi5n2.localdomain",
+    "username": "admin",
     "kind": "k3s_agent"
   },
-  "k8pi4.localdomain": {
-    "hostname": "k8pi4.localdomain",
-    "username": "k8pi",
+  "pi5n3.localdomain": {
+    "hostname": "pi5n3.localdomain",
+    "username": "admin",
     "kind": "k3s_agent"
   }
 }

@@ -11,7 +11,7 @@ import dotenv
 
 from cli.utils.monitoring import get_server_status, check_host
 from cli.utils.server import Server
-from cli.utils.ssh import SSHUtil
+from cli.utils.server_interface import ServerInterface
 
 dotenv.load_dotenv()
 
@@ -112,13 +112,13 @@ def install_k3s_agent(host: str, server_url: str, token: str):
     server = next((s for s in servers if s.hostname == host), None)
 
     try:
-        with SSHUtil(server) as ssh:
+        with ServerInterface(server) as server_interface:
             # Construct the K3s installation command
             install_cmd = f'curl -sfL https://get.k3s.io | K3S_URL={server_url} K3S_TOKEN={token} sh -'
 
             # Execute the command
             click.echo(f"Installing K3s agent on {host}...")
-            ssh.exec_command(install_cmd)
+            server_interface.exec_command(install_cmd)
 
             click.echo("K3s agent installation completed successfully!")
 
@@ -238,12 +238,12 @@ def cleanup():
     for server in servers:
         # try to uninstall k3s
         try:
-            with SSHUtil(server) as ssh:
+            with ServerInterface(server) as server_interface:
                 click.echo(f"Uninstalling K3s from {server.hostname}...")
                 try:
-                    ssh.run_command("/usr/local/bin/k3s-uninstall.sh")
+                    server_interface.run_command("/usr/local/bin/k3s-uninstall.sh")
                 except Exception:
-                    ssh.run_command("/usr/local/bin/k3s-agent-uninstall.sh")
+                    server_interface.run_command("/usr/local/bin/k3s-agent-uninstall.sh")
                 click.echo("K3s uninstalled successfully!")
         except Exception as e:
             click.echo(f"Error: {str(e)}", err=True)
@@ -272,39 +272,102 @@ def setup():
         click.echo("Primary node is not reachable. Please check the connection.")
         return
 
-    with SSHUtil(server) as ssh:
+    with ServerInterface(server) as server_interface:
         if not (status.k3s_server_status is not None and status.k3s_server_status.active):
             # try to install k3s
-            try:
-
-                click.echo(f"Installing K3s server on {server.hostname}...")
-                install_cmd = 'curl -sfL https://get.k3s.io | sh -'
-                ssh.run_command(install_cmd)
-
-            except Exception as e:
-                click.echo(f"Error: {str(e)}", err=True)
+            configure_rpios(server_interface)
+            click.echo(f"Installing K3s server on {server.hostname}...")
+            install_cmd = f'curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --tls-san {server.hostname}" sh -'
+            server_interface.run_command_stream(install_cmd)
         else:
             click.echo(f"K3s server is already installed on {server.hostname}. Skipping...")
-        stdout, _ = ssh.run_command("sudo cat /var/lib/rancher/k3s/server/node-token")
+        stdout, _ = server_interface.run_command("sudo cat /var/lib/rancher/k3s/server/node-token")
         token = stdout.strip()
 
     # install k3s agents
+    already_running = []
+    newly_setup = []
+    skipped = []
+    errored = []
     for agent in (s for s in servers if s.kind == 'k3s_agent'):
         status = get_server_status(agent)
         if not status.host_info.is_up:
             click.echo(f"Node {agent.hostname} is not reachable. Skipping...")
+            skipped.append(agent.hostname)
             continue
-        with SSHUtil(agent) as ssh:
-            if status.k3s_agent_status is not None and status.k3s_agent_status.active:
-                click.echo(f"K3s agent is already installed on {agent.hostname}. Checking configuration...")
-                stdout, _ = ssh.run_command("sudo cat /etc/rancher/k3s/k3s.yaml")
-                print(stdout)
-            try:
+        try:
+            with ServerInterface(agent) as server_interface:
+                if status.k3s_agent_status is not None and status.k3s_agent_status.active:
+                    click.echo(f"K3s agent is already installed on {agent.hostname}. Continuing...")
+                    already_running.append(agent.hostname)
+                else:
+                    configure_rpios(server_interface)
+                    click.echo(f"Installing K3s agent on {agent.hostname}...")
+                    install_cmd = f'curl -sfL https://get.k3s.io | K3S_URL=https://{server.hostname}:6443 K3S_TOKEN={token} sh -'
+                    server_interface.run_command_stream(install_cmd)
+                    newly_setup.append(agent.hostname)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}", err=True)
+            errored.append(agent.hostname)
 
-                click.echo(f"Installing K3s agent on {agent.hostname}...")
-                install_cmd = f'curl -sfL https://get.k3s.io | K3S_URL=https://{server.hostname} K3S_TOKEN={token} sh -'
-                ssh.run_command_stream(install_cmd)
-            except Exception as e:
-                click.echo(f"Error: {str(e)}", err=True)
+    click.echo("\nSetup summary:")
+    click.echo(f"K3s server: {server.hostname}")
+    click.echo(f"  - Already running: {', '.join(already_running) or 'None'}")
+    click.echo(f"  - Newly setup: {', '.join(newly_setup) or 'None'}")
+    click.echo(f"  - Skipped: {', '.join(skipped) or 'None'}")
+    click.echo(f"  - Errored: {', '.join(errored) or 'None'}")
 
     click.echo("K3s setup completed successfully!")
+
+
+def configure_rpios(server_interface: ServerInterface):
+    click.echo("Configuring Raspberry Pi OS for k3s...")
+    # add cgroup_memory=1 cgroup_enable=memory to /boot/firmware/cmdline.txt if not already present
+    stdout, _ = server_interface.run_command("cat /boot/firmware/cmdline.txt")
+    reboot_necessary = False
+    if "cgroup_memory=1" not in stdout:
+        click.echo("Adding cgroup_memory=1 to /boot/firmware/cmdline.txt...")
+        server_interface.run_command("sudo sed -i 's/$/ cgroup_memory=1/' /boot/firmware/cmdline.txt")
+        reboot_necessary = True
+    if "cgroup_enable=memory" not in stdout:
+        click.echo("Adding cgroup_enable=memory to /boot/firmware/cmdline.txt...")
+        server_interface.run_command("sudo sed -i 's/$/ cgroup_enable=memory/' /boot/firmware/cmdline.txt")
+        reboot_necessary = True
+    if reboot_necessary:
+        click.echo("Rebooting for changes to take effect...")
+        server_interface.reboot()
+        click.echo("Reboot complete.")
+    else:
+        click.echo("Raspberry Pi OS is already configured for k3s.")
+
+
+@server.command()
+def update_kubeconfig():
+    """
+    Update kubeconfig file with the primary server's credentials.
+    """
+    servers = Server.load_all()
+    if not servers:
+        click.echo("No servers registered.")
+        return
+
+    # find the server that is a k3s server
+    server = next((s for s in servers if s.kind == 'k3s_server'), None)
+    if not server:
+        click.echo("No K3s server registered.")
+        return
+
+    status = get_server_status(server)
+    if not status.host_info.is_up:
+        click.echo("Primary node is not reachable. Please check the connection.")
+        return
+
+    with ServerInterface(server) as server_interface:
+        stdout, _ = server_interface.run_command("sudo cat /etc/rancher/k3s/k3s.yaml")
+        kubeconfig = stdout.strip()
+    # replace 127.0.0.1 with the server's IP
+    kubeconfig = kubeconfig.replace("127.0.0.1", server.hostname)
+    with open(os.path.expanduser("~/.kube/config"), "w") as f:
+        f.write(kubeconfig)
+
+    click.echo("Kubeconfig updated successfully!")
