@@ -7,6 +7,37 @@ vars:
     alwaysResolve: true
   CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY:
     alwaysResolve: true
+  KEYCLOAK_ADMIN_USER:
+    alwaysResolve: true
+  KEYCLOAK_ADMIN_PASSWORD:
+    alwaysResolve: true
+  KEYCLOAK_POSTGRES_USER:
+    alwaysResolve: true
+  KEYCLOAK_POSTGRES_PASSWORD:
+    alwaysResolve: true
+  AUTHENTIK_SECRET_KEY:
+    alwaysResolve: true
+  AUTHENTIK_POSTGRES_PASSWORD:
+    alwaysResolve: true
+  KUBERNETES_DASHBOARD_AUTH_CLIENT_SECRET:
+    alwaysResolve: true
+
+pipelines:
+  deploy: |
+    run_dependencies --all
+    ensure_pull_secrets --all
+    build_images --all
+    create_deployments cert-manager rook
+    wait_pod --namespace cert-manager --label-selector app=webhook
+    create_deployments core-infra rook-cluster
+    create_deployments keycloak authentik
+    
+  purge: |
+    stop_dev --all
+    purge_deployments --all --except cert-manager core-infra rook rook-cluster
+  purge-keycloak: |
+    stop_dev --all
+    purge_deployments keycloak
 
 deployments:
   cert-manager:
@@ -30,32 +61,135 @@ deployments:
           awsAccessKeyId: ${CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID}
           awsSecretAccessKey: ${CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY}
 
-  kubernetes-dashboard:
-    namespace: kubernetes-dashboard
+  keycloak:
+    namespace: keycloak
     helm:
       chart:
-        name: kubernetes-dashboard
-        repo: https://kubernetes.github.io/dashboard/
+        name: oci://registry-1.docker.io/bitnamicharts/keycloak
+        version: 24.3.2
       values:
-        serviceAccount:
-          create: true
-          name: kubernetes-dashboard
-        kong:
-          proxy:
-            http:
-              enabled: true
-        app:
+        global:
+          postgresql:
+            auth:
+              username: ${KEYCLOAK_POSTGRES_USER}
+              password: ${KEYCLOAK_POSTGRES_PASSWORD}
+        auth:
+          adminUser: ${KEYCLOAK_ADMIN_USER}
+          adminPassword: ${KEYCLOAK_ADMIN_PASSWORD}
+        proxy: edge
+        ingress:
+          enabled: true
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            traefik.ingress.kubernetes.io/router.tls: "true"
+          ingressClassName: traefik
+          hostname: auth.court306.com
+          tls: true
+          secrets:
+            - name: keycloak-tls
+              secretName: auth.court306.com-tls 
+        adminIngress:
+          enabled: true
+          hostname: admin.auth.court306.com
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            traefik.ingress.kubernetes.io/router.tls: "true"
+          ingressClassName: traefik
+          tls: true
+          secrets:
+            - name: keycloak-tls
+              secretName: admin.auth.court306.com-tls
+  authentik:
+    namespace: authentik
+    helm:
+      chart:
+        name: authentik
+        repo: https://charts.goauthentik.io
+      values:
+        authentik:
+          secret_key: ${AUTHENTIK_SECRET_KEY}
+          postgresql:
+            password: ${AUTHENTIK_POSTGRES_PASSWORD}
+
+        server:
           ingress:
             enabled: true
-            annotations:
-              cert-manager.io/cluster-issuer: "letsencrypt-prod"
-              traefik.ingress.kubernetes.io/router.tls: "true"
+            ingressClassName: traefik
             hosts:
-              - dashboard.court306.com
-            useDefaultIngressClass: true
-            pathType: ImplementationSpecific
-            path: /
-            issuer:
-              scope: disabled
+              - authentik.court306.com
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.tls: "true"
             tls:
-              enabled: true
+              - secretName: authentik-tls
+                hosts:
+                 - authentik.court306.com
+
+        postgresql:
+          enabled: true
+          auth:
+            password: ${AUTHENTIK_POSTGRES_PASSWORD}
+
+        redis:
+          enabled: true
+  hoarder:
+    namespace: hoarder
+    helm:
+      chart:
+        name: ./hoarder
+    values:
+      meilisearch:
+        masterKey: ${MEILISEARCH_MASTER_KEY}
+      openai:
+        apiKey: ${OPENAI_API_KEY}
+      hoarder:
+        version: 0.22.0
+  rook:
+    namespace: rook-ceph
+    helm:
+      chart:
+        name: rook-ceph
+        repo: https://charts.rook.io/release
+  rook-cluster:
+    namespace: rook-ceph
+    helm:
+      chart:
+        name: rook-ceph-cluster
+        repo: https://charts.rook.io/release
+      values:
+        toolbox:
+          enabled: true
+        cephClusterSpec:
+          dashboard:
+            enabled: true
+            ssl: false
+            port: 8000
+          resources:
+            mgr:
+              requests:
+                cpu: 400m
+                memory: 512Mi
+            mon:
+              requests:
+                cpu: 400m
+                memory: 512Mi
+            osd:
+              requests:
+                cpu: 400m
+                memory: 512Mi
+
+        ingress:
+          dashboard:
+            enabled: true
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            ingressClassName: traefik
+            host:
+              name: ceph.court306.com
+            tls:
+              - secretName: rook-ceph-dashboard-tls
+                hosts:
+                 - ceph.court306.com
+        cephFileSystems:
+        cephObjectStores:

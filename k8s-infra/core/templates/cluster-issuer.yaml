@@ -6,10 +6,10 @@ metadata:
   namespace: cert-manager
 type: Opaque
 stringData:
-  secret-access-key: {{ .Values.certVerify.awsSecretAccessKey }}
+  access-key-id: '{{ .Values.certManager.awsAccessKeyId }}'
+  secret-access-key: '{{ .Values.certManager.awsSecretAccessKey }}'
 
 ---
-# Then create the ClusterIssuer using DNS-01 challenge
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -17,6 +17,9 @@ metadata:
 spec:
   acme:
     email: {{ .Values.certVerify.email }}
+    # staging url
+    # server: https://acme-staging-v02.api.letsencrypt.org/directory
+    # production url
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-prod
@@ -24,11 +27,38 @@ spec:
     - dns01:
         route53:
           region: us-east-1  # Replace with your AWS region
-          accessKeyID: {{ .Values.certVerify.awsAccessKeyId }}
+          accessKeyIDSecretRef:
+            name: route53-credentials
+            key: access-key-id
           secretAccessKeySecretRef:
             name: route53-credentials
             key: secret-access-key
       selector:
         dnsZones:
-        - '{{ .Values.domain }}'
+        - '{{ .Values.global.domain }}'
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: {{ .Values.certVerify.email }}
+    # staging url
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+    - dns01:
+        route53:
+          region: us-east-1  # Replace with your AWS region
+          accessKeyIDSecretRef:
+            name: route53-credentials
+            key: access-key-id
+          secretAccessKeySecretRef:
+            name: route53-credentials
+            key: secret-access-key
+      selector:
+        dnsZones:
+        - '{{ .Values.global.domain }}'
 {{ end }}
