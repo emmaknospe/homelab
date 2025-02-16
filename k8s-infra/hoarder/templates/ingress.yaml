@@ -4,16 +4,16 @@ metadata:
   name: hoarder-web-ingress
   namespace: hoarder
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-staging
+    cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
   tls:
     - hosts:
-      - hoarder.court306.com
+      - {{ .Values.domain }}
       secretName: hoarder-web-tls
   rules:
-  - host: "hoarder.court306.com"
+  - host: {{ .Values.domain }}
     http:
       paths:
       - path: "/"

@@ -25,7 +25,7 @@ spec:
             - secretRef:
                 name: hoarder-secrets
             - configMapRef:
-                name: hoarder-configuration
+                name: hoarder-config
       volumes:
         - name: meilisearch
           persistentVolumeClaim:

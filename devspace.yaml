@@ -13,5 +13,34 @@ dependencies:
     vars:
       CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID: ${CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID}
       CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY: ${CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY}
+      KUBERNETES_DASHBOARD_AUTH_CLIENT_SECRET: ${KUBERNETES_DASHBOARD_AUTH_CLIENT_SECRET}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      HOARDER_OAUTH_CLIENT_ID: ${HOARDER_OAUTH_CLIENT_ID}
+      HOARDER_OAUTH_CLIENT_SECRET: ${HOARDER_OAUTH_CLIENT_SECRET}
+      ROOT_DOMAIN: cthon.io
+      CLOUDFLARE_DNS_API_TOKEN: ${CLOUDFLARE_DNS_API_TOKEN}
+      CLOUDFLARE_TUNNEL_API_TOKEN: ${CLOUDFLARE_TUNNEL_API_TOKEN}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_TUNNEL_NAME: ${CLOUDFLARE_TUNNEL_NAME}
+      GRAFANA_OAUTH_CLIENT_ID: ${GRAFANA_OAUTH_CLIENT_ID}
+      GRAFANA_OAUTH_CLIENT_SECRET: ${GRAFANA_OAUTH_CLIENT_SECRET}
 
 
+pipelines:
+  purge-keycloak: |
+    stop_dev --all
+    purge_deployments keycloak
+  purge-external-ingresses: |
+    stop_dev --all
+    purge_deployments external-ingresses
+
+
+commands:
+  get-dashboard-token: |
+    kubectl -n kubernetes-dashboard create token kubernetes-dashboard-admin-user
+  ceph-tools-pod: |
+    devspace enter --namespace rook-ceph --label-selector app=rook-ceph-tools

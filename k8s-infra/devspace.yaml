@@ -7,19 +7,35 @@ vars:
     alwaysResolve: true
   CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY:
     alwaysResolve: true
-  KEYCLOAK_ADMIN_USER:
-    alwaysResolve: true
-  KEYCLOAK_ADMIN_PASSWORD:
-    alwaysResolve: true
-  KEYCLOAK_POSTGRES_USER:
-    alwaysResolve: true
-  KEYCLOAK_POSTGRES_PASSWORD:
-    alwaysResolve: true
   AUTHENTIK_SECRET_KEY:
     alwaysResolve: true
   AUTHENTIK_POSTGRES_PASSWORD:
     alwaysResolve: true
   KUBERNETES_DASHBOARD_AUTH_CLIENT_SECRET:
+    alwaysResolve: true
+  MEILISEARCH_MASTER_KEY:
+    alwaysResolve: true
+  OPENAI_API_KEY:
+    alwaysResolve: true
+  NEXTAUTH_SECRET:
+    alwaysResolve: true
+  HOARDER_OAUTH_CLIENT_ID:
+    alwaysResolve: true
+  HOARDER_OAUTH_CLIENT_SECRET:
+    alwaysResolve: true
+  ROOT_DOMAIN:
+    alwaysResolve: true
+  CLOUDFLARE_DNS_API_TOKEN:
+    alwaysResolve: true
+  CLOUDFLARE_TUNNEL_API_TOKEN:
+    alwaysResolve: true
+  CLOUDFLARE_ACCOUNT_ID:
+    alwaysResolve: true
+  CLOUDFLARE_TUNNEL_NAME:
+    alwaysResolve: true
+  GRAFANA_OAUTH_CLIENT_ID:
+    alwaysResolve: true
+  GRAFANA_OAUTH_CLIENT_SECRET:
     alwaysResolve: true
 
 pipelines:
@@ -27,17 +43,27 @@ pipelines:
     run_dependencies --all
     ensure_pull_secrets --all
     build_images --all
+    # deploy resources necessary for very basic functionality first
     create_deployments cert-manager rook
+    # wait for cert-manager webhook to be ready
     wait_pod --namespace cert-manager --label-selector app=webhook
-    create_deployments core-infra rook-cluster
-    create_deployments keycloak authentik
-    
+    # deploy core infrastructure + storage
+    create_deployments core-infra rook-cluster cloudflared-ingress-controller
+    # deploy applications
+    create_deployments authentik hoarder jellyfin prometheus
+    # deploy external ingresses
+    create_deployments external-ingresses
+
   purge: |
     stop_dev --all
+    # don't purge anything vital
     purge_deployments --all --except cert-manager core-infra rook rook-cluster
-  purge-keycloak: |
+  purge-jellyfin: |
     stop_dev --all
-    purge_deployments keycloak
+    purge_deployments jellyfin
+  purge-external-ingresses: |
+    stop_dev --all
+    purge_deployments external-ingresses
 
 deployments:
   cert-manager:
@@ -57,48 +83,13 @@ deployments:
       valuesFiles:
         - ./core/values.yaml
       values:
+        global:
+          domain: ${ROOT_DOMAIN}
         certManager:
           awsAccessKeyId: ${CLUSTER_ISSUER_DNS_AWS_ACCESS_KEY_ID}
           awsSecretAccessKey: ${CLUSTER_ISSUER_DNS_AWS_SECRET_ACCESS_KEY}
+          cloudflareApiToken: ${CLOUDFLARE_DNS_API_TOKEN}
 
-  keycloak:
-    namespace: keycloak
-    helm:
-      chart:
-        name: oci://registry-1.docker.io/bitnamicharts/keycloak
-        version: 24.3.2
-      values:
-        global:
-          postgresql:
-            auth:
-              username: ${KEYCLOAK_POSTGRES_USER}
-              password: ${KEYCLOAK_POSTGRES_PASSWORD}
-        auth:
-          adminUser: ${KEYCLOAK_ADMIN_USER}
-          adminPassword: ${KEYCLOAK_ADMIN_PASSWORD}
-        proxy: edge
-        ingress:
-          enabled: true
-          annotations:
-            cert-manager.io/cluster-issuer: letsencrypt-prod
-            traefik.ingress.kubernetes.io/router.tls: "true"
-          ingressClassName: traefik
-          hostname: auth.court306.com
-          tls: true
-          secrets:
-            - name: keycloak-tls
-              secretName: auth.court306.com-tls 
-        adminIngress:
-          enabled: true
-          hostname: admin.auth.court306.com
-          annotations:
-            cert-manager.io/cluster-issuer: letsencrypt-prod
-            traefik.ingress.kubernetes.io/router.tls: "true"
-          ingressClassName: traefik
-          tls: true
-          secrets:
-            - name: keycloak-tls
-              secretName: admin.auth.court306.com-tls
   authentik:
     namespace: authentik
     helm:
@@ -116,14 +107,14 @@ deployments:
             enabled: true
             ingressClassName: traefik
             hosts:
-              - authentik.court306.com
+              - authentik.${ROOT_DOMAIN}
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
+              cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
               traefik.ingress.kubernetes.io/router.tls: "true"
             tls:
               - secretName: authentik-tls
                 hosts:
-                 - authentik.court306.com
+                 - authentik.${ROOT_DOMAIN}
 
         postgresql:
           enabled: true
@@ -137,19 +128,127 @@ deployments:
     helm:
       chart:
         name: ./hoarder
-    values:
-      meilisearch:
-        masterKey: ${MEILISEARCH_MASTER_KEY}
-      openai:
-        apiKey: ${OPENAI_API_KEY}
-      hoarder:
-        version: 0.22.0
+      values:
+        domain: hoarder.${ROOT_DOMAIN}
+        meilisearch:
+          masterKey: ${MEILISEARCH_MASTER_KEY}
+        openai:
+          apiKey: ${OPENAI_API_KEY}
+        hoarder:
+          version: 0.22.0
+        nextAuth:
+          secret: ${NEXTAUTH_SECRET}
+        oauth:
+          clientId: ${HOARDER_OAUTH_CLIENT_ID}
+          clientSecret: ${HOARDER_OAUTH_CLIENT_SECRET}
+          wellKnownUrl: https://authentik.${ROOT_DOMAIN}/application/o/hoarder/.well-known/openid-configuration
+          providerName: authentik
+  prometheus:
+    namespace: monitoring
+    helm:
+      chart:
+        name: kube-prometheus-stack 
+        repo: https://prometheus-community.github.io/helm-charts
+      values:
+        prometheus:
+          namespaces:
+            releaseNamespace: true
+            additional:
+              - monitoring
+              - rook-ceph
+              - jellyfin
+              - authentik
+              - homelab
+              - hoarder
+          prometheusSpec:
+            # without the below, only service monitors deployed in this release will be scraped, which is annoying
+            # since e.g. rook-ceph's service monitor is deployed automatically by the rook-ceph-cluster chart
+            serviceMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorNamespaceSelector:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: In
+                  values:
+                    - monitoring
+                    - rook-ceph
+                    - jellyfin
+                    - authentik
+                    - homelab
+                    - hoarder
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - prometheus.${ROOT_DOMAIN}
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            tls:
+              - secretName: prometheus-tls
+                hosts:
+                 - prometheus.${ROOT_DOMAIN}
+        grafana:
+          env:
+            GF_SERVER_ROOT_URL: "https://grafana.${ROOT_DOMAIN}"
+            GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+            GF_AUTH_GENERIC_OAUTH_NAME: "authentik"
+            GF_AUTH_GENERIC_OAUTH_CLIENT_ID: ${GRAFANA_OAUTH_CLIENT_ID}
+            GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GRAFANA_OAUTH_CLIENT_SECRET}
+            GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+            GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://authentik.${ROOT_DOMAIN}/application/o/authorize/"
+            GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://authentik.${ROOT_DOMAIN}/application/o/token/"
+            GF_AUTH_GENERIC_OAUTH_API_URL: "https://authentik.${ROOT_DOMAIN}/application/o/userinfo/"
+            GF_AUTH_SIGNOUT_REDIRECT_URL: "https://authentik.${ROOT_DOMAIN}/application/o/grafana/end-session/"
+            GF_AUTH_OAUTH_AUTO_LOGIN: "true"
+            GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups, 'Grafana Admins') && 'Admin' || contains(groups, 'Grafana Editors') && 'Editor' || 'Viewer'"
+          enabled: true
+          persistence:
+            enabled: true
+            size: 10Gi
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - grafana.${ROOT_DOMAIN}
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
+              traefik.ingress.kubernetes.io/router.tls: "true"
+            tls:
+              - secretName: grafana-tls
+                hosts:
+                 - grafana.${ROOT_DOMAIN}
+  jellyfin:
+    namespace: jellyfin
+    helm:
+      chart:
+        name: jellyfin
+        repo: https://jellyfin.github.io/jellyfin-helm
+      values:
+        ingress:
+          enabled: true
+          className: traefik
+          hosts:
+           - host: jellyfin.${ROOT_DOMAIN}
+             paths:
+               - path: /
+                 pathType: ImplementationSpecific
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
+            traefik.ingress.kubernetes.io/router.tls: "true"
+          tls:
+           - secretName: jellyfin-tls
+             hosts:
+              - jellyfin.${ROOT_DOMAIN}
   rook:
     namespace: rook-ceph
     helm:
       chart:
         name: rook-ceph
         repo: https://charts.rook.io/release
+      values:
+        # disable on first install
+        monitoring:
+          enabled: true
   rook-cluster:
     namespace: rook-ceph
     helm:
@@ -157,6 +256,9 @@ deployments:
         name: rook-ceph-cluster
         repo: https://charts.rook.io/release
       values:
+        # disable on first install
+        monitoring:
+          enabled: true
         toolbox:
           enabled: true
         cephClusterSpec:
@@ -182,14 +284,43 @@ deployments:
           dashboard:
             enabled: true
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
+              cert-manager.io/cluster-issuer: letsencrypt-prod-cloudflare
               traefik.ingress.kubernetes.io/router.tls: "true"
             ingressClassName: traefik
             host:
-              name: ceph.court306.com
+              name: ceph.${ROOT_DOMAIN}
             tls:
               - secretName: rook-ceph-dashboard-tls
                 hosts:
-                 - ceph.court306.com
+                 - ceph.${ROOT_DOMAIN}
         cephFileSystems:
         cephObjectStores:
+  cloudflared-ingress-controller:
+    namespace: cloudflare-tunnel-ingress-controller 
+    helm:
+      chart:
+        name: cloudflare-tunnel-ingress-controller 
+        repo: https://helm.strrl.dev 
+      values:
+        cloudflare:
+          apiToken: ${CLOUDFLARE_TUNNEL_API_TOKEN}
+          accountId: ${CLOUDFLARE_ACCOUNT_ID}
+          tunnelName: ${CLOUDFLARE_TUNNEL_NAME}
+  external-ingresses:
+    helm:
+      chart:
+        name: ./external-ingresses
+      values:
+        ingresses:
+          - name: authentik
+            namespace: authentik
+            domain: authentik.${ROOT_DOMAIN}
+            service:
+              name: authentik-server
+              port: 80
+          - name: hoarder
+            namespace: hoarder
+            domain: hoarder.${ROOT_DOMAIN}
+            service:
+              name: web
+              port: 3000

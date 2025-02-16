@@ -4,3 +4,10 @@ metadata:
   name: hoarder-config
 data:
   HOARDER_VERSION: {{ .Values.hoarder.version }}
+  NEXTAUTH_URL: https://{{ .Values.domain }}
+  OAUTH_WELLKNOWN_URL: {{ .Values.oauth.wellKnownUrl }}
+  OAUTH_PROVIDER_NAME: {{ .Values.oauth.providerName }}
+  OAUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING: "true"
+  DISABLE_PASSWORD_AUTH: "true"
+  # DISABLE_SIGNUPS: "true"
+

@@ -1,0 +1,21 @@
+{{- range .Values.ingresses }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .name }}-external-cloudflare-ingress
+  namespace: {{ .namespace }}
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+  - host: {{ .domain }}
+    http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .service.name }}
+            port:
+              number: {{ .service.port }}
+{{- end }}

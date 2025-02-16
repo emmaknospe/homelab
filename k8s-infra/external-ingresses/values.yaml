@@ -1,0 +1,13 @@
+ingresses:
+  - name: hoarder
+    namespace: hoarder
+    domain: hoarder.example.com
+    service:
+      name: web
+      port: 3000
+  - name: another-app
+    namespace: another-namespace
+    domain: another.example.com
+    service:
+      name: frontend
+      port: 8080

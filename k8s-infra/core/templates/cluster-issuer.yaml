@@ -1,4 +1,3 @@
-{{ if .Values.certVerify.enabled }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -8,7 +7,15 @@ type: Opaque
 stringData:
   access-key-id: '{{ .Values.certManager.awsAccessKeyId }}'
   secret-access-key: '{{ .Values.certManager.awsSecretAccessKey }}'
-
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-dns-credentials
+  namespace: cert-manager
+type: Opaque
+stringData:
+  api-token: '{{ .Values.certManager.cloudflareApiToken }}'
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -17,12 +24,9 @@ metadata:
 spec:
   acme:
     email: {{ .Values.certVerify.email }}
-    # staging url
-    # server: https://acme-staging-v02.api.letsencrypt.org/directory
-    # production url
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: letsencrypt-prod
+      name: letsencrypt-prod-aws
     solvers:
     - dns01:
         route53:
@@ -35,19 +39,19 @@ spec:
             key: secret-access-key
       selector:
         dnsZones:
-        - '{{ .Values.global.domain }}'
+        - 'court306.com'
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: letsencrypt-staging
+  name: letsencrypt-staging-aws
 spec:
   acme:
     email: {{ .Values.certVerify.email }}
     # staging url
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: letsencrypt-staging
+      name: letsencrypt-staging-aws
     solvers:
     - dns01:
         route53:
@@ -60,5 +64,46 @@ spec:
             key: secret-access-key
       selector:
         dnsZones:
-        - '{{ .Values.global.domain }}'
-{{ end }}
+        - 'court306.com'
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging-cloudflare
+spec:
+  acme:
+    email: {{ .Values.certVerify.email }}
+    # staging url
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-cloudflare
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-dns-credentials
+            key: api-token
+      selector:
+        dnsZones:
+        - 'cthon.io'
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod-cloudflare
+spec:
+  acme:
+    email: {{ .Values.certVerify.email }}
+    # staging url
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-cloudflare
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-dns-credentials
+            key: api-token
+      selector:
+        dnsZones:
+        - 'cthon.io'
